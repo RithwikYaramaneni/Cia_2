@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'attendify'
+        NAMESPACE = 'attendify'
+        KUBE_CONTEXT = 'docker-desktop'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build and test') {
+            steps {
+                sh 'mvn -B clean verify'
+            }
+            post {
+                always {
+                    junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: false
+                }
+            }
+        }
+
+        stage('Build Docker image') {
+            steps {
+                sh '''
+                    docker build \
+                      --tag ${IMAGE_NAME}:${BUILD_NUMBER} \
+                      --tag ${IMAGE_NAME}:latest .
+                '''
+            }
+        }
+
+        stage('Deploy to Docker Desktop Kubernetes') {
+            steps {
+                sh '''
+                    kubectl config use-context "${KUBE_CONTEXT}"
+                    kubectl apply -f k8s/namespace.yaml
+                    kubectl apply -f k8s/deployment.yaml
+                    kubectl apply -f k8s/service.yaml
+                    kubectl -n "${NAMESPACE}" set image \
+                      deployment/attendify attendify="${IMAGE_NAME}:${BUILD_NUMBER}"
+                '''
+            }
+        }
+
+        stage('Verify deployment') {
+            steps {
+                sh '''
+                    kubectl -n "${NAMESPACE}" rollout status \
+                      deployment/attendify --timeout=120s
+                    kubectl -n "${NAMESPACE}" get deployment,pods,service
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Attendify passed tests and was deployed successfully.'
+        }
+        failure {
+            echo 'Attendify pipeline failed. Review the stage logs and test report.'
+        }
+    }
+}
