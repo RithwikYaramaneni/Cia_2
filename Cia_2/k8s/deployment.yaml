@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: attendify
-          image: ghcr.io/OWNER/REPOSITORY:latest
-          imagePullPolicy: Always
+          image: attendify:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
