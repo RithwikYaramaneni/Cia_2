@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: attendify
+  namespace: attendify
+  labels:
+    app: attendify
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: attendify
+  template:
+    metadata:
+      labels:
+        app: attendify
+    spec:
+      containers:
+        - name: attendify
+          image: ghcr.io/OWNER/REPOSITORY:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /api/dashboard
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/dashboard
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
