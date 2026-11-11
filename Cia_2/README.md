@@ -35,7 +35,7 @@ The optional `ansible/deploy.yml` applies the same manifests from a configured c
 1. Checkout source code.
 2. Run Maven compilation and all 15 unit tests.
 3. Publish JUnit results in Jenkins.
-4. Build versioned and `latest` Docker images.
+4. Build the `latest` Docker image for the local Docker Desktop engine.
 5. Apply the Kubernetes manifests and update the deployment image.
 6. Wait for the Kubernetes rollout and display deployment evidence.
 
@@ -63,3 +63,5 @@ kubectl -n attendify port-forward service/attendify 8082:80
 ```
 
 Then open `http://localhost:8082`.
+
+The Jenkins pipeline intentionally uses `attendify:latest` and restarts the deployment instead of using a build-number image tag. Docker Desktop Kubernetes uses the local Docker engine, while a build-number tag may not be visible to the Kubernetes node runtime.

@@ -35,9 +35,7 @@ pipeline {
             steps {
                 dir('Cia_2') {
                     sh '''
-                        docker build \
-                          --tag ${IMAGE_NAME}:${BUILD_NUMBER} \
-                          --tag ${IMAGE_NAME}:latest .
+                        docker build --tag attendify:latest .
                     '''
                 }
             }
@@ -51,8 +49,7 @@ pipeline {
                         kubectl apply -f k8s/namespace.yaml
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
-                        kubectl -n "${NAMESPACE}" set image \
-                          deployment/attendify attendify="${IMAGE_NAME}:${BUILD_NUMBER}"
+                        kubectl -n "${NAMESPACE}" rollout restart deployment/attendify
                     '''
                 }
             }
