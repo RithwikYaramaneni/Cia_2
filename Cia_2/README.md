@@ -16,15 +16,38 @@ Open `http://localhost:8080`. The API is available at `GET /api/dashboard`, `GET
 
 1. Checkout source.
 2. Set up Java 17, compile, run unit tests and package with Maven.
-3. Build and push immutable SHA-tagged and `latest` Docker images to GHCR.
-4. Configure the target Kubernetes cluster from the `KUBE_CONFIG` GitHub secret.
-5. Apply Kubernetes manifests, update the deployment image, wait for rollout and verify pods/service.
+3. Log in to Azure with the `AZURE_CREDENTIALS` GitHub secret.
+4. Create or reuse an Azure resource group, Azure Container Registry and Container Apps environment.
+5. Build and push an immutable SHA-tagged image to ACR.
+6. Create or update the Azure Container App and print its public hostname.
 
-The workflow uses a pull-request-safe build job; image publishing and deployment only occur on a push to `main`.
+The workflow uses a pull-request-safe build job; Azure resource changes and deployment only occur on a push to `main` or a manual dispatch.
 
 ## Deployment
 
-Replace `OWNER/REPOSITORY` in `k8s/deployment.yaml` with the lowercase GitHub image path. For a cluster, configure `KUBE_CONFIG` as a GitHub Actions environment secret and grant the cluster permission to pull the private GHCR image (or make the image public). Then the `LoadBalancer` service exposes port 80.
+Create an Azure service principal with permission to create the resource group and deploy to the target subscription, then add its JSON output as the `AZURE_CREDENTIALS` repository secret:
+
+```bash
+az ad sp create-for-rbac \
+  --name attendify-github-actions \
+  --role Contributor \
+  --scopes /subscriptions/<subscription-id> \
+  --sdk-auth
+```
+
+Add these repository variables under **Settings > Secrets and variables > Actions > Variables**:
+
+| Variable | Example |
+| --- | --- |
+| `AZURE_RESOURCE_GROUP` | `attendify-rg` |
+| `AZURE_LOCATION` | `centralindia` |
+| `AZURE_CONTAINER_REGISTRY` | `attendifyacr12345` |
+| `AZURE_CONTAINER_APP_ENVIRONMENT` | `attendify-env` |
+| `AZURE_CONTAINER_APP_NAME` | `attendify` |
+
+The ACR name must be globally unique and contain only lowercase letters and numbers. The service principal needs access to the resource group, and the resource group must match the scope used when it was created. Azure Container Apps exposes the application over HTTPS on its generated public hostname.
+
+The existing `k8s/` manifests remain available for the local Docker Desktop Kubernetes and Jenkins workflows.
 
 The optional `ansible/deploy.yml` applies the same manifests from a configured control-plane host.
 
