@@ -1,6 +1,7 @@
 package com.attendify;
 
 import com.attendify.model.Student;
+import com.attendify.model.StudentRequest;
 import com.attendify.service.StudentService;
 import org.junit.jupiter.api.Test;
 
@@ -99,6 +100,33 @@ class StudentServiceTest {
                 () -> assertEquals(2, dashboard.atRiskCount()),
                 () -> assertEquals(5, dashboard.students().size())
         );
+    }
+
+    @Test
+    void addsStudentWithNextId() {
+        StudentService service = new StudentService();
+        Student added = service.addStudent(new StudentRequest("Nisha Rao", "CS-2024-006", "Computer Science", 88));
+
+        assertEquals(6, added.id());
+        assertEquals(0, added.totalClasses());
+        assertEquals(6, service.findAll().size());
+    }
+
+    @Test
+    void rejectsDuplicateRollNumber() {
+        StudentService service = new StudentService();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.addStudent(new StudentRequest("New Student", "cs-2024-001", "Computer Science", 70)));
+    }
+
+    @Test
+    void removesStudent() {
+        StudentService service = new StudentService();
+        service.removeStudent(2);
+
+        assertEquals(4, service.findAll().size());
+        assertThrows(NoSuchElementException.class, () -> service.findById(2));
     }
 
     private static Student student(int present, int totalClasses, int marks) {

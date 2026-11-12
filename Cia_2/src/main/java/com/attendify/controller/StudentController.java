@@ -2,6 +2,7 @@ package com.attendify.controller;
 
 import com.attendify.model.Dashboard;
 import com.attendify.model.Student;
+import com.attendify.model.StudentRequest;
 import com.attendify.service.StudentService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -36,6 +37,17 @@ public class StudentController {
             throw new IllegalArgumentException("The present field is required");
         }
         return service.recordAttendance(id, present);
+    }
+
+    @PostMapping("/students")
+    public Student addStudent(@RequestBody StudentRequest request) {
+        return service.addStudent(request);
+    }
+
+    @DeleteMapping("/students/{id}")
+    public ResponseEntity<Void> removeStudent(@PathVariable long id) {
+        service.removeStudent(id);
+        return ResponseEntity.noContent().build();
     }
 
     @ExceptionHandler(NoSuchElementException.class)

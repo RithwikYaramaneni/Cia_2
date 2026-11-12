@@ -2,6 +2,7 @@ package com.attendify.service;
 
 import com.attendify.model.Dashboard;
 import com.attendify.model.Student;
+import com.attendify.model.StudentRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -38,5 +39,36 @@ public class StudentService {
         Student updated = findById(id).withAttendance(present);
         students.replaceAll(student -> student.id() == id ? updated : student);
         return updated;
+    }
+
+    public synchronized Student addStudent(StudentRequest request) {
+        String name = required(request.name(), "Name");
+        String rollNumber = required(request.rollNumber(), "Roll number");
+        String course = required(request.course(), "Course");
+        if (request.marks() < 0 || request.marks() > 100) {
+            throw new IllegalArgumentException("Marks must be between 0 and 100");
+        }
+        if (students.stream().anyMatch(student -> student.rollNumber().equalsIgnoreCase(rollNumber))) {
+            throw new IllegalArgumentException("Roll number already exists");
+        }
+
+        long id = students.stream().mapToLong(Student::id).max().orElse(0) + 1;
+        Student student = new Student(id, name, rollNumber, course, 0, 0, request.marks());
+        students.add(student);
+        return student;
+    }
+
+    public synchronized void removeStudent(long id) {
+        if (students.removeIf(student -> student.id() == id)) {
+            return;
+        }
+        throw new NoSuchElementException("Student " + id + " was not found");
+    }
+
+    private static String required(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value.trim();
     }
 }

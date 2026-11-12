@@ -8,7 +8,7 @@ Attendify is an attendance, marks and grades management system built as the Java
 mvn spring-boot:run
 ```
 
-Open `http://localhost:8080`. The API is available at `GET /api/dashboard`, `GET /api/students`, and `POST /api/students/{id}/attendance` with `{"present": true}` or `{"present": false}`.
+Open `http://localhost:8080`. The API is available at `GET /api/dashboard`, `GET /api/students`, `POST /api/students` with `{"name":"Nisha Rao","rollNumber":"CS-2024-006","course":"Computer Science","marks":88}`, `DELETE /api/students/{id}`, and `POST /api/students/{id}/attendance` with `{"present": true}` or `{"present": false}`. The dashboard is a single-page app with controls for adding and removing students.
 
 ## Pipeline
 
