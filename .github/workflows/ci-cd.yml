@@ -8,11 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-  AZURE_CONTAINER_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY }}
-  AZURE_CONTAINER_APP_ENVIRONMENT: ${{ vars.AZURE_CONTAINER_APP_ENVIRONMENT }}
-  AZURE_CONTAINER_APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+  VM_HOST: ${{ vars.VM_HOST }}
+  VM_USERNAME: ${{ vars.VM_USERNAME }}
 
 jobs:
   build-test:
@@ -31,11 +28,11 @@ jobs:
           cache: maven
       - name: Compile, test and package
         run: mvn -B verify
-      - name: Upload application artifact
+      - name: Upload application JAR
         uses: actions/upload-artifact@v4
         with:
           name: attendify-jar
-          path: Cia_2/target/*.jar
+          path: Cia_2/target/attendify-0.0.1-SNAPSHOT.jar
 
   deploy:
     needs: build-test
@@ -43,100 +40,36 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: Cia_2
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-      - name: Log in to Azure
-        uses: azure/login@v2
+      - name: Download application JAR
+        uses: actions/download-artifact@v4
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Install Container Apps CLI extension
-        run: az extension add --name containerapp --upgrade
-      - name: Ensure Azure resources exist
-        shell: bash
+          name: attendify-jar
+          path: artifact
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+      - name: Trust VM host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+      - name: Upload and restart Attendify
         run: |
           set -euo pipefail
-          az group create \
-            --name "$AZURE_RESOURCE_GROUP" \
-            --location "$AZURE_LOCATION" \
-            --output none
-          az acr show --name "$AZURE_CONTAINER_REGISTRY" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1 || \
-            az acr create \
-              --name "$AZURE_CONTAINER_REGISTRY" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --location "$AZURE_LOCATION" \
-              --sku Basic \
-              --admin-enabled true \
-              --output none
-          az containerapp env show \
-            --name "$AZURE_CONTAINER_APP_ENVIRONMENT" \
-            --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1 || \
-            az containerapp env create \
-              --name "$AZURE_CONTAINER_APP_ENVIRONMENT" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --location "$AZURE_LOCATION" \
-              --output none
-      - name: Build and push image to Azure Container Registry
-        id: image
-        shell: bash
+          scp artifact/attendify-0.0.1-SNAPSHOT.jar \
+            "$VM_USERNAME@$VM_HOST:/home/$VM_USERNAME/attendify.jar"
+          ssh "$VM_USERNAME@$VM_HOST" \
+            'sudo systemctl restart attendify && sudo systemctl is-active --quiet attendify'
+      - name: Verify public endpoint
         run: |
-          set -euo pipefail
-          ACR_LOGIN_SERVER="$(az acr show \
-            --name "$AZURE_CONTAINER_REGISTRY" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query loginServer \
-            --output tsv)"
-          az acr login --name "$AZURE_CONTAINER_REGISTRY"
-          IMAGE="$ACR_LOGIN_SERVER/attendify:${GITHUB_SHA}"
-          docker build --tag "$IMAGE" .
-          docker push "$IMAGE"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-          echo "login-server=$ACR_LOGIN_SERVER" >> "$GITHUB_OUTPUT"
-      - name: Deploy container app
-        shell: bash
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-          ACR_LOGIN_SERVER: ${{ steps.image.outputs.login-server }}
-        run: |
-          set -euo pipefail
-          ACR_USERNAME="$(az acr credential show \
-            --name "$AZURE_CONTAINER_REGISTRY" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query username \
-            --output tsv)"
-          ACR_PASSWORD="$(az acr credential show \
-            --name "$AZURE_CONTAINER_REGISTRY" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query 'passwords[0].value' \
-            --output tsv)"
-          if az containerapp show \
-            --name "$AZURE_CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
-            az containerapp update \
-              --name "$AZURE_CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --image "$IMAGE" \
-              --output none
-          else
-            az containerapp create \
-              --name "$AZURE_CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --environment "$AZURE_CONTAINER_APP_ENVIRONMENT" \
-              --image "$IMAGE" \
-              --registry-server "$ACR_LOGIN_SERVER" \
-              --registry-username "$ACR_USERNAME" \
-              --registry-password "$ACR_PASSWORD" \
-              --target-port 8080 \
-              --ingress external \
-              --min-replicas 1 \
-              --max-replicas 2 \
-              --output none
-          fi
-          az containerapp show \
-            --name "$AZURE_CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query properties.configuration.ingress.fqdn \
-            --output tsv
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --max-time 10 \
+              "http://$VM_HOST/api/dashboard" >/dev/null; then
+              echo "Attendify is responding at http://$VM_HOST"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Attendify endpoint did not become ready" >&2
+          exit 1
