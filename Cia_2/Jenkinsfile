@@ -11,6 +11,14 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        choice(
+            name: 'CANARY_ACTION',
+            choices: ['deploy', 'promote', 'rollback'],
+            description: 'Deploy a canary, promote it to production, or roll back to stable'
+        )
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -32,16 +40,23 @@ pipeline {
         }
 
         stage('Build Docker image') {
+            when {
+                expression { params.CANARY_ACTION == 'deploy' }
+            }
             steps {
                 dir('Cia_2') {
                     sh '''
-                        docker build --tag attendify:latest .
+                        docker build --tag "attendify:${BUILD_NUMBER}" .
+                        docker tag "attendify:${BUILD_NUMBER}" attendify:canary
                     '''
                 }
             }
         }
 
-        stage('Deploy to Docker Desktop Kubernetes') {
+        stage('Deploy canary') {
+            when {
+                expression { params.CANARY_ACTION == 'deploy' }
+            }
             steps {
                 dir('Cia_2') {
                     sh '''
@@ -49,18 +64,49 @@ pipeline {
                         kubectl apply -f k8s/namespace.yaml
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
-                        kubectl -n "${NAMESPACE}" rollout restart deployment/attendify
+                        kubectl apply -f k8s/deployment-canary.yaml
+                        kubectl apply -f k8s/service-canary.yaml
+                        kubectl -n "${NAMESPACE}" rollout status \
+                          deployment/attendify-canary --timeout=120s
                     '''
                 }
             }
         }
 
-        stage('Verify deployment') {
+        stage('Promote canary') {
+            when {
+                expression { params.CANARY_ACTION == 'promote' }
+            }
             steps {
                 dir('Cia_2') {
                     sh '''
+                        kubectl config use-context "${KUBE_CONTEXT}"
                         kubectl -n "${NAMESPACE}" rollout status \
-                          deployment/attendify --timeout=120s
+                          deployment/attendify-canary --timeout=120s
+                        kubectl -n "${NAMESPACE}" patch service attendify \
+                          --type merge \
+                          --patch '{"spec":{"selector":{"app":"attendify","version":"canary"}}}'
+                        kubectl -n "${NAMESPACE}" get deployment,pods,service
+                    '''
+                }
+            }
+        }
+
+        stage('Rollback canary') {
+            when {
+                expression { params.CANARY_ACTION == 'rollback' }
+            }
+            steps {
+                dir('Cia_2') {
+                    sh '''
+                        kubectl config use-context "${KUBE_CONTEXT}"
+                        kubectl -n "${NAMESPACE}" patch service attendify \
+                          --type merge \
+                          --patch '{"spec":{"selector":{"app":"attendify","version":"stable"}}}'
+                        kubectl -n "${NAMESPACE}" delete deployment attendify-canary \
+                          --ignore-not-found
+                        kubectl -n "${NAMESPACE}" delete service attendify-canary \
+                          --ignore-not-found
                         kubectl -n "${NAMESPACE}" get deployment,pods,service
                     '''
                 }

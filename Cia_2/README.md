@@ -89,4 +89,23 @@ kubectl -n attendify port-forward service/attendify 8082:80
 
 Then open `http://localhost:8082`.
 
+### Jenkins canary deployment
+
+The Jenkins pipeline supports a three-step canary flow through the `CANARY_ACTION`
+parameter:
+
+1. Select `deploy` to build `attendify:canary` and deploy one canary replica.
+2. Test it with:
+
+   ```bash
+   kubectl -n attendify port-forward service/attendify-canary 8083:80
+   ```
+
+   Then open `http://localhost:8083`.
+3. Select `promote` to make the main `attendify` Service route traffic to canary Pods.
+4. Select `rollback` to route traffic back to stable Pods and remove the canary.
+
+The main Service initially selects Pods labeled `version: stable`, so deploying a
+canary does not change production traffic until promotion.
+
 The Jenkins pipeline intentionally uses `attendify:latest` and restarts the deployment instead of using a build-number image tag. Docker Desktop Kubernetes uses the local Docker engine, while a build-number tag may not be visible to the Kubernetes node runtime.
