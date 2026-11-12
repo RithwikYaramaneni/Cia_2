@@ -6,10 +6,20 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options:
+          - testing
+          - production
+        default: testing
 
 env:
   VM_HOST: ${{ vars.VM_HOST }}
   VM_USERNAME: ${{ vars.VM_USERNAME }}
+  DEPLOY_ENV: ${{ inputs.target_environment || 'production' }}
 
 jobs:
   build-test:
@@ -37,6 +47,7 @@ jobs:
   deploy:
     needs: build-test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: ${{ inputs.target_environment || 'production' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,16 +68,45 @@ jobs:
       - name: Upload and restart Attendify
         run: |
           set -euo pipefail
+          if [ "$DEPLOY_ENV" = "production" ]; then
+            remote_jar="/home/$VM_USERNAME/attendify.jar"
+            service_name="attendify"
+            service_port="8080"
+          else
+            remote_jar="/home/$VM_USERNAME/attendify-testing.jar"
+            service_name="attendify-testing"
+            service_port="8081"
+          fi
           scp artifact/attendify-0.0.1-SNAPSHOT.jar \
-            "$VM_USERNAME@$VM_HOST:/home/$VM_USERNAME/attendify.jar"
+            "$VM_USERNAME@$VM_HOST:$remote_jar"
+          cat <<EOF | ssh "$VM_USERNAME@$VM_HOST" "sudo tee /etc/systemd/system/$service_name.service >/dev/null"
+          [Unit]
+          Description=Attendify $DEPLOY_ENV environment
+          After=network.target
+
+          [Service]
+          User=$VM_USERNAME
+          WorkingDirectory=/home/$VM_USERNAME
+          ExecStart=/usr/bin/java -Xms128m -Xmx512m -jar $remote_jar --server.port=$service_port
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
           ssh "$VM_USERNAME@$VM_HOST" \
-            'sudo systemctl restart attendify && sudo systemctl is-active --quiet attendify'
-      - name: Verify public endpoint
+            "sudo systemctl daemon-reload && sudo systemctl enable --now $service_name && sudo systemctl restart $service_name && sudo systemctl is-active --quiet $service_name"
+      - name: Verify deployment
         run: |
+          if [ "$DEPLOY_ENV" = "production" ]; then
+            endpoint="http://$VM_HOST/api/dashboard"
+          else
+            endpoint="http://$VM_HOST:8081/api/dashboard"
+          fi
           for attempt in {1..12}; do
             if curl --fail --silent --show-error --max-time 10 \
-              "http://$VM_HOST/api/dashboard" >/dev/null; then
-              echo "Attendify is responding at http://$VM_HOST"
+              "$endpoint" >/dev/null; then
+              echo "Attendify $DEPLOY_ENV environment is responding at $endpoint"
               exit 0
             fi
             sleep 5

@@ -36,6 +36,11 @@ The VM deployment uses these GitHub Actions settings:
 
 The VM is configured with Java 17, Nginx and a systemd service. Future pushes to `main` rebuild the application, copy the JAR to the VM and restart the service.
 
+To select an environment manually, open **Actions > Attendify CI/CD > Run workflow** and choose
+`testing` or `production` from the **Environment to deploy** field. Pushes to `main` default to
+`production`. The testing deployment runs independently as `attendify-testing` on port `8081`;
+production continues to run as `attendify` behind Nginx on port `80`.
+
 The one-time VM provisioning used:
 
 ```bash
